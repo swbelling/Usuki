@@ -1,4 +1,4 @@
-function [usuki_currentx,usuki_currenty] = usuki_peierls_phase(Ax,Ay,Az,phi,numpoints)
+function [usuki_currentx,usuki_currenty] = usuki_peierls_phase_V2(Ax,Ay,Az,phi,numpoints)
 
 % Constants (everything is in SI units)
 h = 6.626e-34;
@@ -9,7 +9,8 @@ a = 2e-9;               % size in meter
 m0 = 9.11e-31;          % [kg]
 mstar_GaAs = 0.067*m0;  % [kg]
 % Disorder_num = 0;
-
+current_densityx = zeros(numpoints,numpoints,2);
+current_densityy = zeros(numpoints,numpoints,2);
 % numpoints = numpoints; %size(Ax2Usuki,2);
 Nx =  numpoints;
 Ny =  numpoints;
@@ -24,8 +25,9 @@ T = (hbar^2)/(2*mstar_GaAs*a^2); % kinetic energy operator  % Hopping Energy * 1
 % Nano-Electronic Devices: Semiclassical and Quantum Transport Modeling
 % edited by Dragica Vasileska, Stephen M. Goodnick
 numfermis = 1;
-
-
+kT = 1.38e-23*300;
+phi_left = phi(numpoints/4,numpoints/2);%Set potential for left and right side fermi distribution
+phi_right = phi(3*numpoints/4,numpoints/2);
 % fermis = 1e-3*e*linspace(2,2,numfermis);
 fermis = 1e-3*e*linspace(5,5,numfermis); %just use one to get current density
 %% A vector potential
@@ -82,10 +84,30 @@ Tmatrix = zeros(30,30,numfermis);
 % % end
 Lnth = floor(Nx/4);
 width = floor(Nx/10);
-[Domain_air,Domain_FET] = Domain_Rectangle_Mosfet(Nx,Ny,2, Nx/2);
+% [Domain_air,Domain_FET] = Domain_Rectangle_Mosfet(Nx,Ny,2, Nx/2);
+% %rectangle potential
+Potential = .1*T*ones(Nx,Ny); %nanotriangle potential
+for i = 1:Nx/2
+    for j = 1:Ny
+        if j > 1.01*i && j < Ny-1.01*i
+            Potential(i,j) = 0;
+            
+        end
+    end
+end
 
-Potential_op = 0*T .* Domain_air + 1e4*T.* Domain_FET ;
-Potential_op = rot90(Potential_op);
+for i = Nx/2:Nx
+    for j = 1:Ny
+        if j > 1.01*(Nx-i) && j < (Ny - 1.01*(Nx-i))
+            Potential(i,j) = 0;
+        end
+    end
+end
+
+% Potential(:,1) = 1e4*T;
+% Potential(:,Ny) = 1e4*T;
+Potential_op = rot90(Potential);
+
 % for i = 1:Nx/2
 %     for j = 1:Ny
 %         if j > 1.00*i && j < Ny-1.00*i
@@ -118,6 +140,11 @@ Potential_op = rot90(Potential_op);
 % print(gcf,'rectangle channel_Potential_op.jpg','-djpeg');
 %% Hamiltonian
 Gfinal = zeros(numfermis,1);
+for ii = 1:2
+    if ii == 2
+        Potential_op = flip(Potential_op,2);
+        A_potential = flip(A_potential,2);
+    end
 for z = 1:numfermis
     ef = fermis(z);
     
@@ -260,18 +287,17 @@ for i = 1:N_prop_forward
 end
 % Sum all modes together for electron density
 density = zeros(numpoints,numpoints);
-for i = 1:N_prop_forward
-    density = density + nmode(:,:,i);
-end
-current_densityx = zeros(numpoints,numpoints);
-current_densityy = zeros(numpoints,numpoints);
+
+
+
 for i = 1:N_prop_forward
     [gradphix,gradphiy] = gradient(phi_current(:,:,i));
     [gradconjx,gradconjy] = gradient(conj(phi_current(:,:,i)));
-    current_densityx = current_densityx+(hbar/(2*m0*1j))*(conj(phi_current(:,:,i)).*...
-        gradphix-phi_current(:,:,i).*gradconjx);
-    current_densityy = current_densityy+(hbar/(2*m0*1j))*(conj(phi_current(:,:,i)).*...
+    current_densityx(:,:,ii) = current_densityx(:,:,ii)+((hbar/(2*m0*1j))*(conj(phi_current(:,:,i)).*...
+        gradphix-phi_current(:,:,i).*gradconjx));
+    current_densityy(:,:,ii) = current_densityy(:,:,ii)+(hbar/(2*m0*1j))*(conj(phi_current(:,:,i)).*...
         gradphiy-phi_current(:,:,i).*gradconjy);
+end
 end
 electron_density = figure;
 imagesc(x,y,(density(:,2:numpoints)))
@@ -288,5 +314,11 @@ close(electron_density)
 % end
 % figure()
 % imagesc(x,y,rot90(real(current_densityx(:,2:numpoints))));
-usuki_currentx = 2*rot90(current_densityx); %indices were switched during calculation of phi so switching back with rot90
-usuki_currenty = 2*rot90(current_densityy);
+fullness_left = 1/(exp((ef-phi_left-ef)/(kT))+1);
+fullness_right = 1/(exp((ef-phi_right-ef)/(kT))+1);
+usuki_currentx = fullness_left*rot90(current_densityx(:,:,1))-...
+    fullness_right*rot90(current_densityx(:,:,2)); %indices were switched during calculation of phi so switching back with rot90
+usuki_currenty = fullness_left*rot90(current_densityy(:,:,1))-...
+    fullness_right*rot90(current_densityy(:,:,2));
+usuki_currentx = reshape(usuki_currentx,[numpoints,numpoints]);
+usuki_currenty = reshape(usuki_currenty,[numpoints,numpoints]);
